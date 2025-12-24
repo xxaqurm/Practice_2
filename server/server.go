@@ -7,6 +7,7 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 type Response struct {
@@ -16,6 +17,20 @@ type Response struct {
 	Count   int         `json:"count,omitempty"`
 }
 
+var dbMutexes = struct {
+	sync.Mutex
+	m map[string]*sync.Mutex
+} {m: make(map[string]*sync.Mutex)}
+
+func getDBMutex(db string) *sync.Mutex {
+	dbMutexes.Lock()
+	defer dbMutexes.Unlock()
+	if _, exists := dbMutexes.m[db]; !exists {
+		dbMutexes.m[db] = &sync.Mutex{}
+	}
+	return dbMutexes.m[db]
+}
+
 func writeJSON(conn net.Conn, resp Response) {
 	b, _ := json.Marshal(resp)
 	conn.Write(append(b, '\n'))
@@ -23,7 +38,6 @@ func writeJSON(conn net.Conn, resp Response) {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-
 	reader := bufio.NewReader(conn)
 
 	for {
@@ -46,8 +60,7 @@ func handleConnection(conn net.Conn) {
 			continue
 		}
 
-		database, collection, action, jsonArg :=
-			parts[0], parts[1], parts[2], parts[3]
+		database, collection, action, jsonArg := parts[0], parts[1], parts[2], parts[3]
 
 		if len(jsonArg) > 1 {
 			if (jsonArg[0] == '"' && jsonArg[len(jsonArg)-1] == '"') ||
@@ -56,15 +69,16 @@ func handleConnection(conn net.Conn) {
 			}
 		}
 
-		cmd := exec.Command(
-			"../database/main",
-			database,
-			collection,
-			action,
-			jsonArg,
-		)
+		dbMutex := getDBMutex(database)
+		fmt.Printf("Client %v: waiting for lock on database %s\n", conn.RemoteAddr(), database)
+		dbMutex.Lock()
+		fmt.Printf("Client %v: acquired lock on database %s\n", conn.RemoteAddr(), database)
 
+		cmd := exec.Command("../database/main", database, collection, action, jsonArg)
 		output, err := cmd.CombinedOutput()
+		dbMutex.Unlock()
+		fmt.Printf("Client %v: released lock on database %s\n", conn.RemoteAddr(), database)
+
 		if err != nil {
 			writeJSON(conn, Response{
 				Status:  "error",
@@ -76,30 +90,28 @@ func handleConnection(conn net.Conn) {
 		outputStr := strings.TrimSpace(string(output))
 
 		switch action {
-
 		case "find":
 			var data []interface{}
 			_ = json.Unmarshal([]byte(outputStr), &data)
-
 			writeJSON(conn, Response{
 				Status:  "success",
 				Message: fmt.Sprintf("Fetched %d docs from %s", len(data), collection),
 				Data:    data,
-				Count:  len(data),
+				Count:   len(data),
 			})
-
 		case "insert":
 			writeJSON(conn, Response{
 				Status:  "success",
 				Message: fmt.Sprintf("Document inserted into %s", collection),
 			})
-
 		case "delete":
+			var data []interface{}
+			_ = json.Unmarshal([]byte(outputStr), &data)
 			writeJSON(conn, Response{
 				Status:  "success",
-				Message: fmt.Sprintf("Documents deleted from %s", collection),
+				Message: fmt.Sprintf("Deleted %d documents from %s", len(data), collection),
+				Count:   len(data),
 			})
-
 		default:
 			writeJSON(conn, Response{
 				Status:  "error",
@@ -110,11 +122,17 @@ func handleConnection(conn net.Conn) {
 }
 
 func main() {
-	ln, _ := net.Listen("tcp", ":8080")
-	fmt.Println("Server started on :8080")
+	ln, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		panic(err)
+	}
 
+	fmt.Println("Server started on :8080")
 	for {
-		conn, _ := ln.Accept()
+		conn, err := ln.Accept()
+		if err != nil {
+			continue
+		}
 		go handleConnection(conn)
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -9,15 +10,20 @@ import (
 )
 
 func main() {
-	conn, err := net.Dial("tcp", "localhost:8080")
+	host := flag.String("host", "localhost", "Server host")
+	port := flag.String("port", "8080", "Server port")
+	flag.Parse()
+
+	// Подключение к серверу
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", *host, *port))
 	if err != nil {
 		fmt.Println("Connection error:", err)
 		return
 	}
 	defer conn.Close()
 
-	fmt.Println("Connected to server")
-	fmt.Println("Enter commands (e.g. INSERT my_db users {...})")
+	fmt.Printf("Connected to server %s:%s\n", *host, *port)
+	fmt.Println("Enter commands (e.g. INSERT users {...})")
 
 	input := bufio.NewReader(os.Stdin)
 	server := bufio.NewReader(conn)
