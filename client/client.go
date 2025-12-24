@@ -14,7 +14,6 @@ func main() {
 	port := flag.String("port", "8080", "Server port")
 	flag.Parse()
 
-	// Подключение к серверу
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%s", *host, *port))
 	if err != nil {
 		fmt.Println("Connection error:", err)
@@ -23,7 +22,7 @@ func main() {
 	defer conn.Close()
 
 	fmt.Printf("Connected to server %s:%s\n", *host, *port)
-	fmt.Println("Enter commands (e.g. INSERT users {...})")
+	fmt.Println("Enter commands (database collection action json)")
 
 	input := bufio.NewReader(os.Stdin)
 	server := bufio.NewReader(conn)

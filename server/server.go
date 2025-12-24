@@ -20,11 +20,12 @@ type Response struct {
 var dbMutexes = struct {
 	sync.Mutex
 	m map[string]*sync.Mutex
-} {m: make(map[string]*sync.Mutex)}
+}{m: make(map[string]*sync.Mutex)}
 
 func getDBMutex(db string) *sync.Mutex {
 	dbMutexes.Lock()
 	defer dbMutexes.Unlock()
+
 	if _, exists := dbMutexes.m[db]; !exists {
 		dbMutexes.m[db] = &sync.Mutex{}
 	}
@@ -38,8 +39,8 @@ func writeJSON(conn net.Conn, resp Response) {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-	reader := bufio.NewReader(conn)
 
+	reader := bufio.NewReader(conn)
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -75,7 +76,7 @@ func handleConnection(conn net.Conn) {
 		fmt.Printf("Client %v: acquired lock on database %s\n", conn.RemoteAddr(), database)
 
 		cmd := exec.Command("../database/main", database, collection, action, jsonArg)
-		output, err := cmd.CombinedOutput()
+		output, err := cmd.CombinedOutput() // []byte
 		dbMutex.Unlock()
 		fmt.Printf("Client %v: released lock on database %s\n", conn.RemoteAddr(), database)
 
